@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tetris — KQ Games</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        
+        body {
+            font-family: 'Space Mono', monospace;
+            background: #0d1117;
+            height: 100dvh; /* Menggunakan Dynamic Viewport Height */
+            display: flex;
+            flex-direction: column;
+            color: white;
+            overflow: hidden;
+        }
+
+        .topbar { 
+            height: 50px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: space-between; 
+            padding: 0 15px;
+            flex-shrink: 0;
+        }
+        
+        .title { font-size: 16px; color: #00e5ff; font-weight: bold; }
+        .back-btn { color: #555; font-size: 10px; text-decoration: none; border: 1px solid #222; padding: 4px 10px; border-radius: 20px; }
+
+        /* Area Game yang Fleksibel */
+        .main-game-area {
+            flex: 1; 
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 0; /* Penting agar kontainer tidak meluap */
+            padding: 5px;
+        }
+
+        .game-layout {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            max-height: 100%;
+        }
+
+        .board-wrap {
+            position: relative;
+            border: 2px solid #2a3a5a;
+            background: #000;
+            line-height: 0;
+            border-radius: 8px;
+        }
+
+        .overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(13, 17, 23, 0.9); 
+            display: flex; flex-direction: column; align-items: center; justify-content: center; 
+            z-index: 10;
+        }
+
+        .side-info { display: flex; flex-direction: column; gap: 5px; }
+        .info-box { 
+            background: #161b22; 
+            border: 1px solid #30363d; 
+            padding: 5px; 
+            text-align: center; 
+            min-width: 65px; 
+            border-radius: 8px; 
+        }
+        .info-label { font-size: 8px; color: #8b949e; display: block; }
+        .info-val { font-size: 12px; font-weight: bold; color: #00e5ff; }
+
+        /* Area Kontrol yang Terkunci di Bawah */
+        .controls-area {
+            height: 140px; /* Kita kunci tingginya agar tidak bergerak */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 10px;
+            padding-bottom: 20px;
+            flex-shrink: 0; /* Jangan biarkan area ini mengecil */
+            background: #0d1117;
+        }
+
+        .ctrl-row { display: flex; justify-content: center; gap: 12px; }
+        
+        .btn {
+            width: 60px; height: 50px; 
+            background: #21262d; 
+            border: 1px solid #30363d;
+            border-radius: 12px; 
+            color: white; font-size: 20px;
+            display: flex; align-items: center; justify-content: center;
+            user-select: none; touch-action: manipulation;
+        }
+
+        .btn:active { background: #00e5ff; color: #000; }
+        .btn-pause { background: #d29922; border: none; }
+
+        .start-btn { 
+            background: #00e5ff; color:#000; padding: 10px 20px; border:none; 
+            font-weight:bold; margin-top:10px; border-radius:6px; font-family: inherit;
+        }
+    </style>
+</head>
+<body>
+
+    <header class="topbar">
+        <a href="#" class="back-btn">← BACK</a>
+        <div class="title">TETRIS</div>
+        <div style="width:50px"></div>
+    </header>
+
+    <main class="main-game-area">
+        <div class="game-layout">
+            <div class="board-wrap">
+                <canvas id="board"></canvas>
+                <div class="overlay" id="overlay">
+                    <div id="msg" style="font-weight:bold; letter-spacing: 2px;">TETRIS</div>
+                    <button class="start-btn" id="startBtn">MULAI</button>
+                </div>
+            </div>
+
+            <div class="side-info">
+                <div class="info-box">
+                    <span class="info-label">SKOR</span>
+                    <span class="info-val" id="score">0</span>
+                </div>
+                <div class="info-box">
+                    <span class="info-label">NEXT</span>
+                    <canvas id="next" style="background:#000; margin-top:5px;"></canvas>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="controls-area">
+        <div class="ctrl-row">
+            <div class="btn" id="l">◀</div>
+            <div class="btn" id="d">▼</div>
+            <div class="btn" id="r">▶</div>
+        </div>
+        <div class="ctrl-row">
+            <div class="btn" id="rot">↻</div>
+            <div class="btn btn-pause" id="p">⏸</div>
+            <div class="btn" id="h">⏬</div>
+        </div>
+    </footer>
+
+    <script>
+      // --- 1. DEFINISI SUARA (Taruh di awal script) ---
+let audioCtx;
+function playExplosion() {
+    try {
+        if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.type = 'triangle'; // Suara 8-bit khas game jadul
+        osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.3);
+        g.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        g.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.3);
+        osc.connect(g); g.connect(audioCtx.destination);
+        osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+    } catch(e) {}
+}
+
+        const canvas = document.getElementById('board');
+        const ctx = canvas.getContext('2d');
+        const nCanvas = document.getElementById('next');
+        const nCtx = nCanvas.getContext('2d');
+
+        const COLS = 10, ROWS = 20;
+        let CELL, grid, piece, nextPiece, score, running = false, paused = false, timer;
+
+        const COLORS = { I:'#4dd0e1', O:'#fff176', T:'#ba68c8', S:'#81c784', Z:'#e57373', J:'#64b5f6', L:'#ffb74d' };
+        const SHAPES = { I:[[1,1,1,1]], O:[[1,1],[1,1]], T:[[0,1,0],[1,1,1]], S:[[0,1,1],[1,1,0]], Z:[[1,1,0],[0,1,1]], J:[[1,0,0],[1,1,1]], L:[[0,0,1],[1,1,1]] };
+
+        function resize() {
+            // Logika baru: Hitung sisa ruang yang benar-benar tersisa di tengah
+            const containerH = document.querySelector('.main-game-area').clientHeight;
+            const containerW = document.querySelector('.main-game-area').clientWidth;
+            
+            // Sisihkan ruang untuk sidebar (sekitar 80px)
+            const availableW = containerW - 90;
+            const availableH = containerH - 20;
+
+            let sizeByH = Math.floor(availableH / ROWS);
+            let sizeByW = Math.floor(availableW / COLS);
+            
+            CELL = Math.min(sizeByH, sizeByW);
+            
+            // Batasi ukuran minimal agar tidak hilang
+            if (CELL < 10) CELL = 10;
+
+            canvas.width = COLS * CELL;
+            canvas.height = ROWS * CELL;
+            nCanvas.width = 3 * CELL;
+            nCanvas.height = 3 * CELL;
+        }
+
+        function createPiece() {
+            const keys = Object.keys(SHAPES);
+            const type = keys[Math.floor(Math.random()*7)];
+            return { type, s: SHAPES[type], x: 3, y: 0, c: COLORS[type] };
+        }
+
+        function drawBlock(tCtx, x, y, color, isGhost = false) {
+            tCtx.fillStyle = isGhost ? color + "25" : color;
+            tCtx.fillRect(x * CELL, y * CELL, CELL - 1, CELL - 1);
+            if(!isGhost) {
+                tCtx.fillStyle = "rgba(255, 255, 255, 0.2)";
+                tCtx.fillRect(x * CELL, y * CELL, CELL - 1, CELL / 5);
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0,0,canvas.width,canvas.height);
+            grid.forEach((row, r) => row.forEach((v, c) => { if(v) drawBlock(ctx, c, r, v); }));
+            if(piece) {
+                let gy = 0; while(!collide(piece, 0, gy + 1)) gy++;
+                piece.s.forEach((row,r)=>row.forEach((v,c)=>{ if(v) drawBlock(ctx, piece.x+c, piece.y+r+gy, piece.c, true); }));
+                piece.s.forEach((row,r)=>row.forEach((v,c)=>{ if(v) drawBlock(ctx, piece.x+c, piece.y+r, piece.c); }));
+            }
+        }
+
+        function collide(p, ox=0, oy=0, rs=null) {
+            const shape = rs || p.s;
+            for(let r=0; r<shape.length; r++) {
+                for(let c=0; c<shape[r].length; c++) {
+                    if(shape[r][c]) {
+                        let nx = p.x+c+ox, ny = p.y+r+oy;
+                        if(nx<0 || nx>=COLS || ny>=ROWS || (ny>=0 && grid[ny][nx])) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function drop() {
+            if(!collide(piece, 0, 1)) piece.y++;
+            else {
+                piece.s.forEach((row,r)=>row.forEach((v,c)=>{ if(v && piece.y+r>=0) grid[piece.y+r][piece.x+c] = piece.c; }));
+                for(let r=ROWS-1; r>=0; r--) {
+                    if(grid[r].every(v=>v)) { 
+                    playExplosion(); // <--- TAMBAHKAN BARIS INI
+                      grid.splice(r,1); grid.unshift(Array(COLS).fill(null)); score += 100; r++; }
+                }
+                document.getElementById('score').innerText = score;
+                piece = nextPiece; nextPiece = createPiece();
+                if(collide(piece)) { running=false; document.getElementById('overlay').style.display='flex'; document.getElementById('msg').innerText='GAME OVER'; }
+                drawNext();
+            }
+            draw();
+        }
+
+        function drawNext() {
+            nCtx.clearRect(0,0,nCanvas.width,nCanvas.height);
+            nextPiece.s.forEach((row,r)=>row.forEach((v,c)=>{ if(v) drawBlock(nCtx, c, r, nextPiece.c); }));
+        }
+
+        function start() {
+            grid = Array.from({length:ROWS}, ()=>Array(COLS).fill(null));
+            score = 0; piece = createPiece(); nextPiece = createPiece();
+            running = true; paused = false;
+            document.getElementById('overlay').style.display = 'none';
+            document.getElementById('score').innerText = '0';
+            if(timer) clearInterval(timer);
+            timer = setInterval(() => { if(running && !paused) drop(); }, 800);
+            drawNext(); draw();
+        }
+
+        function addInput(id, fn) {
+            const el = document.getElementById(id);
+            el.addEventListener('touchstart', (e) => { e.preventDefault(); fn(); }, {passive: false});
+            el.addEventListener('click', (e) => { e.preventDefault(); fn(); });
+        }
+
+        addInput('startBtn', start);
+        addInput('l', () => { if(running && !paused && !collide(piece, -1)) { piece.x--; draw(); } });
+        addInput('r', () => { if(running && !paused && !collide(piece, 1)) { piece.x++; draw(); } });
+        addInput('d', () => { if(running && !paused) drop(); });
+        addInput('h', () => { if(running && !paused) { while(!collide(piece, 0, 1)) piece.y++; drop(); } });
+        addInput('rot', () => {
+            if(running && !paused) {
+                const rs = piece.s[0].map((_,i)=>piece.s.map(row=>row[i]).reverse());
+                if(!collide(piece, 0, 0, rs)) { piece.s = rs; draw(); }
+            }
+        });
+        addInput('p', () => {
+            if(!running) return;
+            paused = !paused;
+            document.getElementById('overlay').style.display = paused ? 'flex' : 'none';
+            document.getElementById('msg').innerText = 'PAUSED';
+        });
+
+        window.onload = () => { resize(); draw(); };
+        window.onresize = () => { resize(); draw(); };
+    </script>
+</body>
+</html>
